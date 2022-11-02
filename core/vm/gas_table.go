@@ -18,6 +18,7 @@ package vm
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
@@ -162,22 +163,29 @@ func gasSStore(evm *EVM, contract *Contract, stack *Stack, mem *Memory, memorySi
 	return params.NetSstoreDirtyGas, nil
 }
 
-// 0. If *gasleft* is less than or equal to 2300, fail the current call.
-// 1. If current value equals new value (this is a no-op), SLOAD_GAS is deducted.
-// 2. If current value does not equal new value:
-//   2.1. If original value equals current value (this storage slot has not been changed by the current execution context):
+func appendLog(log, step string, diff int) string {
+	return fmt.Sprintf("%s(%s)(%d), ", log, step, diff)
+}
+
+//  0. If *gasleft* is less than or equal to 2300, fail the current call.
+//  1. If current value equals new value (this is a no-op), SLOAD_GAS is deducted.
+//  2. If current value does not equal new value:
+//     2.1. If original value equals current value (this storage slot has not been changed by the current execution context):
 //     2.1.1. If original value is 0, SSTORE_SET_GAS (20K) gas is deducted.
 //     2.1.2. Otherwise, SSTORE_RESET_GAS gas is deducted. If new value is 0, add SSTORE_CLEARS_SCHEDULE to refund counter.
-//   2.2. If original value does not equal current value (this storage slot is dirty), SLOAD_GAS gas is deducted. Apply both of the following clauses:
+//     2.2. If original value does not equal current value (this storage slot is dirty), SLOAD_GAS gas is deducted. Apply both of the following clauses:
 //     2.2.1. If original value is not 0:
-//       2.2.1.1. If current value is 0 (also means that new value is not 0), subtract SSTORE_CLEARS_SCHEDULE gas from refund counter.
-//       2.2.1.2. If new value is 0 (also means that current value is not 0), add SSTORE_CLEARS_SCHEDULE gas to refund counter.
+//     2.2.1.1. If current value is 0 (also means that new value is not 0), subtract SSTORE_CLEARS_SCHEDULE gas from refund counter.
+//     2.2.1.2. If new value is 0 (also means that current value is not 0), add SSTORE_CLEARS_SCHEDULE gas to refund counter.
 //     2.2.2. If original value equals new value (this storage slot is reset):
-//       2.2.2.1. If original value is 0, add SSTORE_SET_GAS - SLOAD_GAS to refund counter.
-//       2.2.2.2. Otherwise, add SSTORE_RESET_GAS - SLOAD_GAS gas to refund counter.
+//     2.2.2.1. If original value is 0, add SSTORE_SET_GAS - SLOAD_GAS to refund counter.
+//     2.2.2.2. Otherwise, add SSTORE_RESET_GAS - SLOAD_GAS gas to refund counter.
 func gasSStoreEIP2200(evm *EVM, contract *Contract, stack *Stack, mem *Memory, memorySize uint64) (uint64, error) {
+	gasLog := "mm-gas: "
+	defer func() { fmt.Println(gasLog) }()
 	// If we fail the minimum gas availability invariant, fail (0)
 	if contract.Gas <= params.SstoreSentryGasEIP2200 {
+		gasLog = appendLog(gasLog, "0", 0)
 		return 0, errors.New("not enough gas for reentrancy sentry")
 	}
 	// Gas sentry honoured, do the actual gas calculation based on the stored value
@@ -187,34 +195,45 @@ func gasSStoreEIP2200(evm *EVM, contract *Contract, stack *Stack, mem *Memory, m
 	)
 	value := common.Hash(y.Bytes32())
 
-	if current == value { // noop (1)
+	if current == value { // noop (1) +800
+		gasLog = appendLog(gasLog, "1", int(params.SloadGasEIP2200))
 		return params.SloadGasEIP2200, nil
 	}
 	original := evm.StateDB.GetCommittedState(contract.Address(), x.Bytes32())
 	if original == current {
-		if original == (common.Hash{}) { // create slot (2.1.1)
+		if original == (common.Hash{}) { // create slot (2.1.1) +20000
+			gasLog = appendLog(gasLog, "2.1.1", int(params.SstoreSetGasEIP2200))
 			return params.SstoreSetGasEIP2200, nil
 		}
-		if value == (common.Hash{}) { // delete slot (2.1.2b)
+		if value == (common.Hash{}) { // delete slot (2.1.2b) -15000
 			evm.StateDB.AddRefund(params.SstoreClearsScheduleRefundEIP2200)
+			gasLog = appendLog(gasLog, "2.1.2b", -int(params.SstoreClearsScheduleRefundEIP2200))
 		}
-		return params.SstoreResetGasEIP2200, nil // write existing slot (2.1.2)
+		gasLog = appendLog(gasLog, "2.1.2", int(params.SstoreResetGasEIP2200))
+		return params.SstoreResetGasEIP2200, nil // write existing slot (2.1.2) +5000
 	}
 	if original != (common.Hash{}) {
-		if current == (common.Hash{}) { // recreate slot (2.2.1.1)
+		if current == (common.Hash{}) { // recreate slot (2.2.1.1) +15000
+			gasLog = appendLog(gasLog, "2.2.1.1", int(params.SstoreClearsScheduleRefundEIP2200))
 			evm.StateDB.SubRefund(params.SstoreClearsScheduleRefundEIP2200)
-		} else if value == (common.Hash{}) { // delete slot (2.2.1.2)
+		} else if value == (common.Hash{}) { // delete slot (2.2.1.2) -15000
+			gasLog = appendLog(gasLog, "2.2.1.2", -int(params.SstoreClearsScheduleRefundEIP2200))
 			evm.StateDB.AddRefund(params.SstoreClearsScheduleRefundEIP2200)
 		}
 	}
 	if original == value {
-		if original == (common.Hash{}) { // reset to original inexistent slot (2.2.2.1)
-			evm.StateDB.AddRefund(params.SstoreSetGasEIP2200 - params.SloadGasEIP2200)
-		} else { // reset to original existing slot (2.2.2.2)
-			evm.StateDB.AddRefund(params.SstoreResetGasEIP2200 - params.SloadGasEIP2200)
+		if original == (common.Hash{}) { // reset to original inexistent slot (2.2.2.1) -19200
+			r := params.SstoreSetGasEIP2200 - params.SloadGasEIP2200
+			gasLog = appendLog(gasLog, "2.2.2.1", -int(r))
+			evm.StateDB.AddRefund(r)
+		} else { // reset to original existing slot (2.2.2.2) -4200
+			r := params.SstoreResetGasEIP2200 - params.SloadGasEIP2200
+			gasLog = appendLog(gasLog, "2.2.2.2", -int(r))
+			evm.StateDB.AddRefund(r)
 		}
 	}
-	return params.SloadGasEIP2200, nil // dirty update (2.2)
+	gasLog = appendLog(gasLog, "2.2", int(params.SloadGasEIP2200))
+	return params.SloadGasEIP2200, nil // dirty update (2.2) +800
 }
 
 func makeGasLog(n uint64) gasFunc {

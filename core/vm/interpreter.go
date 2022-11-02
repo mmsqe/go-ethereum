@@ -17,6 +17,7 @@
 package vm
 
 import (
+	"fmt"
 	"hash"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -107,6 +108,10 @@ func NewEVMInterpreter(evm *EVM, cfg Config) *EVMInterpreter {
 	}
 }
 
+func appendCostLog(l string, pc uint64, op string, gas, cost uint64, scope *ScopeContext, depth int) string {
+	return fmt.Sprintf("%s pc(%+v), op(%+v), gas(%+v), cost(%+v), mem(%+v), dep(%+v), ", l, pc, op, gas, cost, scope.Memory.Len(), depth)
+}
+
 // Run loops and evaluates the contract's code with the given input data and returns
 // the return byte-slice and an error if one occurred.
 //
@@ -114,10 +119,16 @@ func NewEVMInterpreter(evm *EVM, cfg Config) *EVMInterpreter {
 // considered a revert-and-consume-all-gas operation except for
 // ErrExecutionReverted which means revert-and-keep-gas-left.
 func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (ret []byte, err error) {
-
+	costLog := "mm-log:"
+	dynamicCostLog := "mm-dynamic:"
 	// Increment the call depth which is restricted to 1024
 	in.evm.depth++
-	defer func() { in.evm.depth-- }()
+
+	defer func() {
+		in.evm.depth--
+		fmt.Printf("%s\n", costLog)
+		fmt.Printf("%s\n", dynamicCostLog)
+	}()
 
 	// Make sure the readOnly is only set if we aren't in readOnly yet.
 	// This also makes sure that the readOnly flag isn't removed for child calls.
@@ -166,6 +177,7 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 	if in.cfg.Debug {
 		defer func() {
 			if err != nil {
+				costLog = appendCostLog(costLog, pcCopy, op.String(), gasCopy, cost, callContext, in.evm.depth)
 				if !logged {
 					in.cfg.Tracer.CaptureState(pcCopy, op, gasCopy, cost, callContext, in.returnData, in.evm.depth, err)
 				} else {
@@ -220,11 +232,13 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 			var dynamicCost uint64
 			dynamicCost, err = operation.dynamicGas(in.evm, contract, stack, mem, memorySize)
 			cost += dynamicCost // for tracing
+			dynamicCostLog = fmt.Sprintf("%+v %+v(%+v),", dynamicCostLog, pc, dynamicCost)
 			if err != nil || !contract.UseGas(dynamicCost) {
 				return nil, ErrOutOfGas
 			}
 			// Do tracing before memory expansion
 			if in.cfg.Debug {
+				costLog = appendCostLog(costLog, pc, op.String(), gasCopy, cost, callContext, in.evm.depth)
 				in.cfg.Tracer.CaptureState(pc, op, gasCopy, cost, callContext, in.returnData, in.evm.depth, err)
 				logged = true
 			}
@@ -232,6 +246,7 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 				mem.Resize(memorySize)
 			}
 		} else if in.cfg.Debug {
+			costLog = appendCostLog(costLog, pc, op.String(), gasCopy, cost, callContext, in.evm.depth)
 			in.cfg.Tracer.CaptureState(pc, op, gasCopy, cost, callContext, in.returnData, in.evm.depth, err)
 			logged = true
 		}
