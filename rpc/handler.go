@@ -34,33 +34,34 @@ import (
 //
 // The entry points for incoming messages are:
 //
-//    h.handleMsg(message)
-//    h.handleBatch(message)
+//	h.handleMsg(message)
+//	h.handleBatch(message)
 //
 // Outgoing calls use the requestOp struct. Register the request before sending it
 // on the connection:
 //
-//    op := &requestOp{ids: ...}
-//    h.addRequestOp(op)
+//	op := &requestOp{ids: ...}
+//	h.addRequestOp(op)
 //
 // Now send the request, then wait for the reply to be delivered through handleMsg:
 //
-//    if err := op.wait(...); err != nil {
-//        h.removeRequestOp(op) // timeout, etc.
-//    }
-//
+//	if err := op.wait(...); err != nil {
+//	    h.removeRequestOp(op) // timeout, etc.
+//	}
 type handler struct {
-	reg            *serviceRegistry
-	unsubscribeCb  *callback
-	idgen          func() ID                      // subscription ID generator
-	respWait       map[string]*requestOp          // active client requests
-	clientSubs     map[string]*ClientSubscription // active client subscriptions
-	callWG         sync.WaitGroup                 // pending call goroutines
-	rootCtx        context.Context                // canceled by close()
-	cancelRoot     func()                         // cancel function for rootCtx
-	conn           jsonWriter                     // where responses will be sent
-	log            log.Logger
-	allowSubscribe bool
+	reg                  *serviceRegistry
+	unsubscribeCb        *callback
+	idgen                func() ID                      // subscription ID generator
+	respWait             map[string]*requestOp          // active client requests
+	clientSubs           map[string]*ClientSubscription // active client subscriptions
+	callWG               sync.WaitGroup                 // pending call goroutines
+	rootCtx              context.Context                // canceled by close()
+	cancelRoot           func()                         // cancel function for rootCtx
+	conn                 jsonWriter                     // where responses will be sent
+	log                  log.Logger
+	allowSubscribe       bool
+	batchRequestLimit    int
+	batchResponseMaxSize int
 
 	subLock    sync.Mutex
 	serverSubs map[ID]*Subscription
@@ -71,19 +72,21 @@ type callProc struct {
 	notifiers []*Notifier
 }
 
-func newHandler(connCtx context.Context, conn jsonWriter, idgen func() ID, reg *serviceRegistry) *handler {
+func newHandler(connCtx context.Context, conn jsonWriter, idgen func() ID, reg *serviceRegistry, batchRequestLimit, batchResponseMaxSize int) *handler {
 	rootCtx, cancelRoot := context.WithCancel(connCtx)
 	h := &handler{
-		reg:            reg,
-		idgen:          idgen,
-		conn:           conn,
-		respWait:       make(map[string]*requestOp),
-		clientSubs:     make(map[string]*ClientSubscription),
-		rootCtx:        rootCtx,
-		cancelRoot:     cancelRoot,
-		allowSubscribe: true,
-		serverSubs:     make(map[ID]*Subscription),
-		log:            log.Root(),
+		reg:                  reg,
+		idgen:                idgen,
+		conn:                 conn,
+		respWait:             make(map[string]*requestOp),
+		clientSubs:           make(map[string]*ClientSubscription),
+		rootCtx:              rootCtx,
+		cancelRoot:           cancelRoot,
+		allowSubscribe:       true,
+		serverSubs:           make(map[ID]*Subscription),
+		log:                  log.Root(),
+		batchRequestLimit:    batchRequestLimit,
+		batchResponseMaxSize: batchResponseMaxSize,
 	}
 	if conn.remoteAddr() != "" {
 		h.log = h.log.New("conn", conn.remoteAddr())
@@ -112,11 +115,29 @@ func (h *handler) handleBatch(msgs []*jsonrpcMessage) {
 	if len(calls) == 0 {
 		return
 	}
+
+	if len(calls) > h.batchRequestLimit && h.batchRequestLimit != 0 {
+		h.startCallProc(func(cp *callProc) {
+			resp := calls[0].errorResponse(&invalidRequestError{errMsgBatchTooLarge})
+			h.conn.writeJSON(cp.ctx, resp)
+		})
+		return
+	}
+
 	// Process calls on a goroutine because they may block indefinitely:
 	h.startCallProc(func(cp *callProc) {
 		answers := make([]*jsonrpcMessage, 0, len(msgs))
+		responseBytes := 0
 		for _, msg := range calls {
 			if answer := h.handleCallMsg(cp, msg); answer != nil {
+				if h.batchResponseMaxSize != 0 {
+					if responseBytes += len(answer.Result); responseBytes > h.batchResponseMaxSize {
+						resp := errorMessage(&invalidRequestError{errMsgResponseTooLarge})
+						resp.ID = answer.ID
+						answers = append(answers, resp)
+						break
+					}
+				}
 				answers = append(answers, answer)
 			}
 		}

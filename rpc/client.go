@@ -39,10 +39,16 @@ var (
 	errDead                      = errors.New("connection lost")
 )
 
+// Timeouts
 const (
-	// Timeouts
 	defaultDialTimeout = 10 * time.Second // used if context has no deadline
 	subscribeTimeout   = 5 * time.Second  // overall timeout eth_subscribe, rpc_modules calls
+)
+
+// Batch limits
+const (
+	DefaultBatchRequestLimit    = 1000             // Maximum number of items in a batch.
+	DefaultBatchResponseMaxSize = 25 * 1000 * 1000 // Maximum number of bytes returned from calls.
 )
 
 const (
@@ -83,6 +89,10 @@ type Client struct {
 	// This function, if non-nil, is called when the connection is lost.
 	reconnectFunc reconnectFunc
 
+	// config fields
+	batchItemLimit       int
+	batchResponseMaxSize int
+
 	// writeConn is used for writing to the connection on the caller's goroutine. It should
 	// only be accessed outside of dispatch, with the write lock held. The write lock is
 	// taken by sending on reqInit and released by sending on reqSent.
@@ -113,7 +123,7 @@ func (c *Client) newClientConn(conn ServerCodec) *clientConn {
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, clientContextKey{}, c)
 	ctx = context.WithValue(ctx, peerInfoContextKey{}, conn.peerInfo())
-	handler := newHandler(ctx, conn, c.idgen, c.services)
+	handler := newHandler(ctx, conn, c.idgen, c.services, c.batchItemLimit, c.batchResponseMaxSize)
 	return &clientConn{conn, handler}
 }
 
@@ -194,33 +204,48 @@ func ClientFromContext(ctx context.Context) (*Client, bool) {
 	return client, ok
 }
 
-func newClient(initctx context.Context, connect reconnectFunc) (*Client, error) {
+func newClient(initctx context.Context, cfg *clientConfig, connect reconnectFunc) (*Client, error) {
 	conn, err := connect(initctx)
 	if err != nil {
 		return nil, err
 	}
-	c := initClient(conn, randomIDGenerator(), new(serviceRegistry))
+	c := initClient(conn, new(serviceRegistry), cfg)
 	c.reconnectFunc = connect
 	return c, nil
 }
 
-func initClient(conn ServerCodec, idgen func() ID, services *serviceRegistry) *Client {
+func initClient(conn ServerCodec, services *serviceRegistry, cfg *clientConfig) *Client {
 	_, isHTTP := conn.(*httpConn)
 	c := &Client{
-		isHTTP:      isHTTP,
-		idgen:       idgen,
-		services:    services,
-		writeConn:   conn,
-		close:       make(chan struct{}),
-		closing:     make(chan struct{}),
-		didClose:    make(chan struct{}),
-		reconnected: make(chan ServerCodec),
-		readOp:      make(chan readOp),
-		readErr:     make(chan error),
-		reqInit:     make(chan *requestOp),
-		reqSent:     make(chan error, 1),
-		reqTimeout:  make(chan *requestOp),
+		isHTTP:               isHTTP,
+		services:             services,
+		idgen:                cfg.idgen,
+		batchItemLimit:       cfg.batchItemLimit,
+		batchResponseMaxSize: cfg.batchResponseLimit,
+		writeConn:            conn,
+		close:                make(chan struct{}),
+		closing:              make(chan struct{}),
+		didClose:             make(chan struct{}),
+		reconnected:          make(chan ServerCodec),
+		readOp:               make(chan readOp),
+		readErr:              make(chan error),
+		reqInit:              make(chan *requestOp),
+		reqSent:              make(chan error, 1),
+		reqTimeout:           make(chan *requestOp),
 	}
+
+	// Set defaults.
+	if c.idgen == nil {
+		c.idgen = randomIDGenerator()
+	}
+	if c.batchItemLimit == 0 {
+		c.batchItemLimit = DefaultBatchRequestLimit
+	}
+	if c.batchResponseMaxSize == 0 {
+		c.batchResponseMaxSize = DefaultBatchResponseMaxSize
+	}
+
+	// Launch the main loop.
 	if !isHTTP {
 		go c.dispatch(conn)
 	}
@@ -381,6 +406,9 @@ func (c *Client) BatchCallContext(ctx context.Context, b []BatchElem) error {
 		// only sends valid IDs to our channel.
 		elem := &b[byID[string(resp.ID)]]
 		if resp.Error != nil {
+			if resp.Error.Message == errMsgBatchTooLarge {
+				return resp.Error
+			}
 			elem.Error = resp.Error
 			continue
 		}

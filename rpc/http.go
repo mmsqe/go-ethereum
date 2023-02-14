@@ -130,7 +130,9 @@ func DialHTTPWithClient(endpoint string, client *http.Client) (*Client, error) {
 	headers := make(http.Header, 2)
 	headers.Set("accept", contentType)
 	headers.Set("content-type", contentType)
-	return newClient(initctx, func(context.Context) (ServerCodec, error) {
+	var cfg clientConfig
+	cfg.httpClient = client
+	return newClient(initctx, &cfg, func(context.Context) (ServerCodec, error) {
 		hc := &httpConn{
 			client:  client,
 			headers: headers,
