@@ -145,7 +145,7 @@ func (b *EthAPIBackend) PendingBlockAndReceipts() (*types.Block, types.Receipts)
 	return b.eth.miner.PendingBlockAndReceipts()
 }
 
-func (b *EthAPIBackend) StateAndHeaderByNumber(ctx context.Context, number rpc.BlockNumber) (*state.StateDB, *types.Header, error) {
+func (b *EthAPIBackend) StateAndHeaderByNumber(ctx context.Context, number rpc.BlockNumber) (state.StateDBI, *types.Header, error) {
 	// Pending state is only known by the miner
 	if number == rpc.PendingBlockNumber {
 		block, state := b.eth.miner.Pending()
@@ -163,7 +163,7 @@ func (b *EthAPIBackend) StateAndHeaderByNumber(ctx context.Context, number rpc.B
 	return stateDb, header, err
 }
 
-func (b *EthAPIBackend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (*state.StateDB, *types.Header, error) {
+func (b *EthAPIBackend) StateAndHeaderByNumberOrHash(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash) (state.StateDBI, *types.Header, error) {
 	if blockNr, ok := blockNrOrHash.Number(); ok {
 		return b.StateAndHeaderByNumber(ctx, blockNr)
 	}
@@ -208,7 +208,7 @@ func (b *EthAPIBackend) GetTd(ctx context.Context, hash common.Hash) *big.Int {
 	return nil
 }
 
-func (b *EthAPIBackend) GetEVM(ctx context.Context, msg core.Message, state *state.StateDB, header *types.Header, vmConfig *vm.Config) (*vm.EVM, func() error, error) {
+func (b *EthAPIBackend) GetEVM(ctx context.Context, msg core.Message, state state.StateDBI, header *types.Header, vmConfig *vm.Config) (*vm.EVM, func() error, error) {
 	vmError := func() error { return nil }
 	if vmConfig == nil {
 		vmConfig = b.eth.blockchain.GetVMConfig()
@@ -359,10 +359,10 @@ func (b *EthAPIBackend) StartMining(threads int) error {
 	return b.eth.StartMining(threads)
 }
 
-func (b *EthAPIBackend) StateAtBlock(ctx context.Context, block *types.Block, reexec uint64, base *state.StateDB, checkLive, preferDisk bool) (*state.StateDB, error) {
+func (b *EthAPIBackend) StateAtBlock(ctx context.Context, block *types.Block, reexec uint64, base state.StateDBI, checkLive, preferDisk bool) (state.StateDBI, error) {
 	return b.eth.StateAtBlock(block, reexec, base, checkLive, preferDisk)
 }
 
-func (b *EthAPIBackend) StateAtTransaction(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (core.Message, vm.BlockContext, *state.StateDB, error) {
-	return b.eth.stateAtTransaction(block, txIndex, reexec)
+func (b *EthAPIBackend) StateAtTransaction(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (core.Message, vm.BlockContext, state.StateDBI, error) {
+	return b.eth.stateAtTransaction(ctx, block, txIndex, reexec)
 }

@@ -20,61 +20,13 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/params"
+	"github.com/holiman/uint256"
 )
 
 // StateDB is an EVM database for full state querying.
-type StateDB interface {
-	CreateAccount(common.Address)
-
-	SubBalance(common.Address, *big.Int)
-	AddBalance(common.Address, *big.Int)
-	GetBalance(common.Address) *big.Int
-
-	GetNonce(common.Address) uint64
-	SetNonce(common.Address, uint64)
-
-	GetCodeHash(common.Address) common.Hash
-	GetCode(common.Address) []byte
-	SetCode(common.Address, []byte)
-	GetCodeSize(common.Address) int
-
-	AddRefund(uint64)
-	SubRefund(uint64)
-	GetRefund() uint64
-
-	GetCommittedState(common.Address, common.Hash) common.Hash
-	GetState(common.Address, common.Hash) common.Hash
-	SetState(common.Address, common.Hash, common.Hash)
-
-	Suicide(common.Address) bool
-	HasSuicided(common.Address) bool
-
-	// Exist reports whether the given account exists in state.
-	// Notably this should also return true for suicided accounts.
-	Exist(common.Address) bool
-	// Empty returns whether the given account is empty. Empty
-	// is defined according to EIP161 (balance = nonce = code = 0).
-	Empty(common.Address) bool
-
-	PrepareAccessList(sender common.Address, dest *common.Address, precompiles []common.Address, txAccesses types.AccessList)
-	AddressInAccessList(addr common.Address) bool
-	SlotInAccessList(addr common.Address, slot common.Hash) (addressOk bool, slotOk bool)
-	// AddAddressToAccessList adds the given address to the access list. This operation is safe to perform
-	// even if the feature/fork is not active yet
-	AddAddressToAccessList(addr common.Address)
-	// AddSlotToAccessList adds the given (address,slot) to the access list. This operation is safe to perform
-	// even if the feature/fork is not active yet
-	AddSlotToAccessList(addr common.Address, slot common.Hash)
-
-	RevertToSnapshot(int)
-	Snapshot() int
-
-	AddLog(*types.Log)
-	AddPreimage(common.Hash, []byte)
-
-	ForEachStorage(common.Address, func(common.Hash, common.Hash) bool) error
-}
+type StateDB = state.StateDBI
 
 // CallContext provides a basic interface for the EVM calling conventions. The EVM
 // depends on this context being implemented for doing subcalls and initialising new EVM contracts.
@@ -88,3 +40,33 @@ type CallContext interface {
 	// Create a new contract
 	Create(env *EVM, me ContractRef, data []byte, gas, value *big.Int) ([]byte, common.Address, error)
 }
+
+type (
+	// PrecompileManager allows the EVM to execute a precompiled contract.
+	PrecompileManager interface {
+		// `Has` returns if a precompiled contract was found at `addr`.
+		Has(addr common.Address) bool
+
+		// `Get` returns the precompiled contract at `addr`. Returns nil if no
+		// contract is found at `addr`.
+		Get(addr common.Address) PrecompiledContract
+
+		GetActive(*params.Rules) []common.Address
+
+		// `Run` runs a precompiled contract and returns the remaining gas.
+		Run(evm PrecompileEVM, p PrecompiledContract, input []byte, caller common.Address,
+			value *big.Int, suppliedGas uint64, readonly bool,
+		) (ret []byte, remainingGas uint64, err error)
+	}
+
+	// PrecompileEVM is the interface through which stateful precompiles can call back into the EVM.
+	PrecompileEVM interface {
+		GetStateDB() StateDB
+
+		Call(caller ContractRef, addr common.Address, input []byte, gas uint64, value *big.Int) (ret []byte, leftOverGas uint64, err error)
+		StaticCall(caller ContractRef, addr common.Address, input []byte, gas uint64) (ret []byte, leftOverGas uint64, err error)
+		Create(caller ContractRef, code []byte, gas uint64, value *big.Int) (ret []byte, contractAddr common.Address, leftOverGas uint64, err error)
+		Create2(caller ContractRef, code []byte, gas uint64, endowment *big.Int, salt *uint256.Int) (ret []byte, contractAddr common.Address, leftOverGas uint64, err error)
+		GetContext() *BlockContext
+	}
+)

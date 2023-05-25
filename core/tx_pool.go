@@ -144,7 +144,7 @@ const (
 type blockChain interface {
 	CurrentBlock() *types.Block
 	GetBlock(hash common.Hash, number uint64) *types.Block
-	StateAt(root common.Hash) (*state.StateDB, error)
+	StateAt(root common.Hash) (state.StateDBI, error)
 
 	SubscribeChainHeadEvent(ch chan<- ChainHeadEvent) event.Subscription
 }
@@ -244,7 +244,7 @@ type TxPool struct {
 	eip2718  bool // Fork indicator whether we are using EIP-2718 type transactions.
 	eip1559  bool // Fork indicator whether we are using EIP-1559 type transactions.
 
-	currentState  *state.StateDB // Current state in the blockchain head
+	currentState  state.StateDBI // Current state in the blockchain head
 	pendingNonces *txNoncer      // Pending state tracking virtual nonces
 	currentMaxGas uint64         // Current gas limit for transaction caps
 

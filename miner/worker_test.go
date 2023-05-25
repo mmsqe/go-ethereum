@@ -167,7 +167,7 @@ func newTestWorkerBackend(t *testing.T, chainConfig *params.ChainConfig, engine 
 
 func (b *testWorkerBackend) BlockChain() *core.BlockChain { return b.chain }
 func (b *testWorkerBackend) TxPool() *core.TxPool         { return b.txPool }
-func (b *testWorkerBackend) StateAtBlock(block *types.Block, reexec uint64, base *state.StateDB, checkLive bool, preferDisk bool) (statedb *state.StateDB, err error) {
+func (b *testWorkerBackend) StateAtBlock(block *types.Block, reexec uint64, base state.StateDBI, checkLive bool, preferDisk bool) (statedb state.StateDBI, err error) {
 	return nil, errors.New("not supported")
 }
 

@@ -40,8 +40,8 @@ import (
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/eth/tracers/logger"
+	"github.com/ethereum/go-ethereum/ethapi"
 	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/ethereum/go-ethereum/internal/ethapi"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
 )
@@ -139,7 +139,7 @@ func (b *testBackend) ChainDb() ethdb.Database {
 	return b.chaindb
 }
 
-func (b *testBackend) StateAtBlock(ctx context.Context, block *types.Block, reexec uint64, base *state.StateDB, checkLive bool, preferDisk bool) (*state.StateDB, error) {
+func (b *testBackend) StateAtBlock(ctx context.Context, block *types.Block, reexec uint64, base state.StateDBI, checkLive bool, preferDisk bool) (state.StateDBI, error) {
 	statedb, err := b.chain.StateAt(block.Root())
 	if err != nil {
 		return nil, errStateNotFound
@@ -147,7 +147,7 @@ func (b *testBackend) StateAtBlock(ctx context.Context, block *types.Block, reex
 	return statedb, nil
 }
 
-func (b *testBackend) StateAtTransaction(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (core.Message, vm.BlockContext, *state.StateDB, error) {
+func (b *testBackend) StateAtTransaction(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (core.Message, vm.BlockContext, state.StateDBI, error) {
 	parent := b.chain.GetBlock(block.ParentHash(), block.NumberU64()-1)
 	if parent == nil {
 		return nil, vm.BlockContext{}, nil, errBlockNotFound

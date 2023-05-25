@@ -32,7 +32,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/eth/filters"
-	"github.com/ethereum/go-ethereum/internal/ethapi"
+	"github.com/ethereum/go-ethereum/ethapi"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
 )
@@ -82,7 +82,7 @@ type Account struct {
 }
 
 // getState fetches the StateDB object for an account.
-func (a *Account) getState(ctx context.Context) (*state.StateDB, error) {
+func (a *Account) getState(ctx context.Context) (state.StateDBI, error) {
 	state, _, err := a.backend.StateAndHeaderByNumberOrHash(ctx, a.blockNrOrHash)
 	return state, err
 }

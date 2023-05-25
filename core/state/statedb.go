@@ -78,7 +78,7 @@ type StateDB struct {
 	snapStorage   map[common.Hash]map[common.Hash][]byte
 
 	// This map holds 'live' objects, which will get modified while processing a state transition.
-	stateObjects        map[common.Address]*stateObject
+	stateObjects        map[common.Address]*StateObject
 	stateObjectsPending map[common.Address]struct{} // State objects finalized but not yet written to the trie
 	stateObjectsDirty   map[common.Address]struct{} // State objects modified in the current execution
 
@@ -100,7 +100,7 @@ type StateDB struct {
 	preimages map[common.Hash][]byte
 
 	// Per-transaction access list
-	accessList *accessList
+	accessList *AccessList
 
 	// Journal of state modifications. This is the backbone of
 	// Snapshot and RevertToSnapshot.
@@ -138,13 +138,13 @@ func New(root common.Hash, db Database, snaps *snapshot.Tree) (*StateDB, error) 
 		trie:                tr,
 		originalRoot:        root,
 		snaps:               snaps,
-		stateObjects:        make(map[common.Address]*stateObject),
+		stateObjects:        make(map[common.Address]*StateObject),
 		stateObjectsPending: make(map[common.Address]struct{}),
 		stateObjectsDirty:   make(map[common.Address]struct{}),
 		logs:                make(map[common.Hash][]*types.Log),
 		preimages:           make(map[common.Hash][]byte),
 		journal:             newJournal(),
-		accessList:          newAccessList(),
+		accessList:          NewAccessList(),
 		hasher:              crypto.NewKeccakState(),
 	}
 	if sdb.snaps != nil {
@@ -456,7 +456,7 @@ func (s *StateDB) Suicide(addr common.Address) bool {
 //
 
 // updateStateObject writes the given object to the trie.
-func (s *StateDB) updateStateObject(obj *stateObject) {
+func (s *StateDB) updateStateObject(obj *StateObject) {
 	// Track the amount of time wasted on updating the account from the trie
 	if metrics.EnabledExpensive {
 		defer func(start time.Time) { s.AccountUpdates += time.Since(start) }(time.Now())
@@ -477,7 +477,7 @@ func (s *StateDB) updateStateObject(obj *stateObject) {
 }
 
 // deleteStateObject removes the given object from the state trie.
-func (s *StateDB) deleteStateObject(obj *stateObject) {
+func (s *StateDB) deleteStateObject(obj *StateObject) {
 	// Track the amount of time wasted on deleting the account from the trie
 	if metrics.EnabledExpensive {
 		defer func(start time.Time) { s.AccountUpdates += time.Since(start) }(time.Now())
@@ -492,7 +492,7 @@ func (s *StateDB) deleteStateObject(obj *stateObject) {
 // getStateObject retrieves a state object given by the address, returning nil if
 // the object is not found or was deleted in this execution context. If you need
 // to differentiate between non-existent/just-deleted, use getDeletedStateObject.
-func (s *StateDB) getStateObject(addr common.Address) *stateObject {
+func (s *StateDB) getStateObject(addr common.Address) *StateObject {
 	if obj := s.getDeletedStateObject(addr); obj != nil && !obj.deleted {
 		return obj
 	}
@@ -503,7 +503,7 @@ func (s *StateDB) getStateObject(addr common.Address) *stateObject {
 // nil for a deleted state object, it returns the actual object with the deleted
 // flag set. This is needed by the state journal to revert to the correct s-
 // destructed object instead of wiping all knowledge about the state object.
-func (s *StateDB) getDeletedStateObject(addr common.Address) *stateObject {
+func (s *StateDB) getDeletedStateObject(addr common.Address) *StateObject {
 	// Prefer live objects if any is available
 	if obj := s.stateObjects[addr]; obj != nil {
 		return obj
@@ -560,12 +560,12 @@ func (s *StateDB) getDeletedStateObject(addr common.Address) *stateObject {
 	return obj
 }
 
-func (s *StateDB) setStateObject(object *stateObject) {
+func (s *StateDB) setStateObject(object *StateObject) {
 	s.stateObjects[object.Address()] = object
 }
 
 // GetOrNewStateObject retrieves a state object or create a new state object if nil.
-func (s *StateDB) GetOrNewStateObject(addr common.Address) *stateObject {
+func (s *StateDB) GetOrNewStateObject(addr common.Address) *StateObject {
 	stateObject := s.getStateObject(addr)
 	if stateObject == nil {
 		stateObject, _ = s.createObject(addr)
@@ -575,7 +575,7 @@ func (s *StateDB) GetOrNewStateObject(addr common.Address) *stateObject {
 
 // createObject creates a new state object. If there is an existing account with
 // the given address, it is overwritten and returned as the second return value.
-func (s *StateDB) createObject(addr common.Address) (newobj, prev *stateObject) {
+func (s *StateDB) createObject(addr common.Address) (newobj, prev *StateObject) {
 	prev = s.getDeletedStateObject(addr) // Note, prev might have been deleted, we need that!
 
 	var prevdestruct bool
@@ -604,8 +604,8 @@ func (s *StateDB) createObject(addr common.Address) (newobj, prev *stateObject) 
 // CreateAccount is called during the EVM CREATE operation. The situation might arise that
 // a contract does the following:
 //
-//   1. sends funds to sha(account ++ (nonce + 1))
-//   2. tx_create(sha(account ++ nonce)) (note that this gets the address of 1)
+//  1. sends funds to sha(account ++ (nonce + 1))
+//  2. tx_create(sha(account ++ nonce)) (note that this gets the address of 1)
 //
 // Carrying over the balance ensures that Ether doesn't disappear.
 func (s *StateDB) CreateAccount(addr common.Address) {
@@ -646,13 +646,13 @@ func (db *StateDB) ForEachStorage(addr common.Address, cb func(key, value common
 
 // Copy creates a deep, independent copy of the state.
 // Snapshots of the copied state cannot be applied to the copy.
-func (s *StateDB) Copy() *StateDB {
+func (s *StateDB) Copy() StateDBI {
 	// Copy all the basic fields, initialize the memory ones
 	state := &StateDB{
 		db:                  s.db,
 		trie:                s.db.CopyTrie(s.trie),
 		originalRoot:        s.originalRoot,
-		stateObjects:        make(map[common.Address]*stateObject, len(s.journal.dirties)),
+		stateObjects:        make(map[common.Address]*StateObject, len(s.journal.dirties)),
 		stateObjectsPending: make(map[common.Address]struct{}, len(s.stateObjectsPending)),
 		stateObjectsDirty:   make(map[common.Address]struct{}, len(s.journal.dirties)),
 		refund:              s.refund,
@@ -999,7 +999,7 @@ func (s *StateDB) Commit(deleteEmptyObjects bool) (common.Hash, error) {
 // This method should only be called if Berlin/2929+2930 is applicable at the current number.
 func (s *StateDB) PrepareAccessList(sender common.Address, dst *common.Address, precompiles []common.Address, list types.AccessList) {
 	// Clear out any leftover from previous executions
-	s.accessList = newAccessList()
+	s.accessList = NewAccessList()
 
 	s.AddAddressToAccessList(sender)
 	if dst != nil {

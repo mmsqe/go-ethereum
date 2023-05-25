@@ -170,10 +170,11 @@ func (beacon *Beacon) VerifyUncles(chain consensus.ChainReader, block *types.Blo
 // verifyHeader checks whether a header conforms to the consensus rules of the
 // stock Ethereum consensus engine. The difference between the beacon and classic is
 // (a) The following fields are expected to be constants:
-//     - difficulty is expected to be 0
-// 	   - nonce is expected to be 0
-//     - unclehash is expected to be Hash(emptyHeader)
+//   - difficulty is expected to be 0
+//   - nonce is expected to be 0
+//   - unclehash is expected to be Hash(emptyHeader)
 //     to be the desired constants
+//
 // (b) the timestamp is not verified anymore
 // (c) the extradata is limited to 32 bytes
 func (beacon *Beacon) verifyHeader(chain consensus.ChainHeaderReader, header, parent *types.Header) error {
@@ -264,7 +265,7 @@ func (beacon *Beacon) Prepare(chain consensus.ChainHeaderReader, header *types.H
 }
 
 // Finalize implements consensus.Engine, setting the final state on the header
-func (beacon *Beacon) Finalize(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header) {
+func (beacon *Beacon) Finalize(chain consensus.ChainHeaderReader, header *types.Header, state state.StateDBI, txs []*types.Transaction, uncles []*types.Header) {
 	// Finalize is different with Prepare, it can be used in both block generation
 	// and verification. So determine the consensus rules by header type.
 	if !beacon.IsPoSHeader(header) {
@@ -278,7 +279,7 @@ func (beacon *Beacon) Finalize(chain consensus.ChainHeaderReader, header *types.
 
 // FinalizeAndAssemble implements consensus.Engine, setting the final state and
 // assembling the block.
-func (beacon *Beacon) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header, receipts []*types.Receipt) (*types.Block, error) {
+func (beacon *Beacon) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *types.Header, state state.StateDBI, txs []*types.Transaction, uncles []*types.Header, receipts []*types.Receipt) (*types.Block, error) {
 	// FinalizeAndAssemble is different with Prepare, it can be used in both block
 	// generation and verification. So determine the consensus rules by header type.
 	if !beacon.IsPoSHeader(header) {

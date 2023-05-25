@@ -91,6 +91,9 @@ func (ga *GenesisAlloc) flush(db ethdb.Database) (common.Hash, error) {
 		statedb.AddBalance(addr, account.Balance)
 		statedb.SetCode(addr, account.Code)
 		statedb.SetNonce(addr, account.Nonce)
+		if err := statedb.Error(); err != nil {
+			return common.Hash{}, err
+		}
 		for key, value := range account.Storage {
 			statedb.SetState(addr, key, value)
 		}
@@ -219,10 +222,10 @@ func (e *GenesisMismatchError) Error() string {
 // SetupGenesisBlock writes or updates the genesis block in db.
 // The block that will be used is:
 //
-//                          genesis == nil       genesis != nil
-//                       +------------------------------------------
-//     db has no genesis |  main-net default  |  genesis
-//     db has genesis    |  from DB           |  genesis (if compatible)
+//	                     genesis == nil       genesis != nil
+//	                  +------------------------------------------
+//	db has no genesis |  main-net default  |  genesis
+//	db has genesis    |  from DB           |  genesis (if compatible)
 //
 // The stored chain configuration will be updated if it is compatible (i.e. does not
 // specify a fork block below the local head block). In case of a conflict, the

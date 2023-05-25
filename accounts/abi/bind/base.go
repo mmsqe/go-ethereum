@@ -332,12 +332,13 @@ func (c *BoundContract) createLegacyTx(opts *TransactOpts, contract *common.Addr
 func (c *BoundContract) estimateGasLimit(opts *TransactOpts, contract *common.Address, input []byte, gasPrice, gasTipCap, gasFeeCap, value *big.Int) (uint64, error) {
 	if contract != nil {
 		// Gas estimation cannot succeed without code for method invocations.
-		if code, err := c.transactor.PendingCodeAt(ensureContext(opts.Context), c.address); err != nil {
+		if _, err := c.transactor.PendingCodeAt(ensureContext(opts.Context), c.address); err != nil {
 			return 0, err
-		} else if len(code) == 0 {
-			return 0, ErrNoCode
 		}
+
+		// if the contract code has length 0, we assume it is a precompile contract.
 	}
+
 	msg := ethereum.CallMsg{
 		From:      opts.From,
 		To:        contract,
@@ -347,6 +348,7 @@ func (c *BoundContract) estimateGasLimit(opts *TransactOpts, contract *common.Ad
 		Value:     value,
 		Data:      input,
 	}
+
 	return c.transactor.EstimateGas(ensureContext(opts.Context), msg)
 }
 
@@ -396,6 +398,7 @@ func (c *BoundContract) transact(opts *TransactOpts, contract *common.Address, i
 	if opts.NoSend {
 		return signedTx, nil
 	}
+
 	if err := c.transactor.SendTransaction(ensureContext(opts.Context), signedTx); err != nil {
 		return nil, err
 	}

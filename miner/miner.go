@@ -40,7 +40,7 @@ import (
 type Backend interface {
 	BlockChain() *core.BlockChain
 	TxPool() *core.TxPool
-	StateAtBlock(block *types.Block, reexec uint64, base *state.StateDB, checkLive bool, preferDisk bool) (statedb *state.StateDB, err error)
+	StateAtBlock(block *types.Block, reexec uint64, base state.StateDBI, checkLive bool, preferDisk bool) (statedb state.StateDBI, err error)
 }
 
 // Config is the configuration parameters of mining.
@@ -189,7 +189,7 @@ func (miner *Miner) SetRecommitInterval(interval time.Duration) {
 }
 
 // Pending returns the currently pending block and associated state.
-func (miner *Miner) Pending() (*types.Block, *state.StateDB) {
+func (miner *Miner) Pending() (*types.Block, state.StateDBI) {
 	return miner.worker.pending()
 }
 
