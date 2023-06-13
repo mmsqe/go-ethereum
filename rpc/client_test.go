@@ -238,7 +238,7 @@ func testClientCancel(transport string, t *testing.T) {
 				_, hasDeadline := ctx.Deadline()
 				t.Errorf("no error for call with %v wait time (deadline: %v)", timeout, hasDeadline)
 				// default:
-				// 	t.Logf("got expected error with %v wait time: %v", timeout, err)
+				//	t.Logf("got expected error with %v wait time: %v", timeout, err)
 			}
 			cancel()
 		}
@@ -415,7 +415,8 @@ func TestClientSubscriptionUnsubscribeServer(t *testing.T) {
 	defer srv.Stop()
 
 	// Create the client on the other end of the pipe.
-	client, _ := newClient(context.Background(), func(context.Context) (ServerCodec, error) {
+	cfg := new(clientConfig)
+	client, _ := newClient(context.Background(), cfg, func(context.Context) (ServerCodec, error) {
 		return NewCodec(p2), nil
 	})
 	defer client.Close()

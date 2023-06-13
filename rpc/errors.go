@@ -56,7 +56,17 @@ var (
 	_ Error = new(invalidParamsError)
 )
 
-const defaultErrorCode = -32000
+const (
+	defaultErrorCode        = -32000
+	errcodeTimeout          = -32002
+	errcodeResponseTooLarge = -32003
+)
+
+const (
+	errMsgTimeout          = "request timed out"
+	errMsgResponseTooLarge = "response too large"
+	errMsgBatchTooLarge    = "batch too large"
+)
 
 type methodNotFoundError struct{ method string }
 
@@ -101,3 +111,13 @@ type invalidParamsError struct{ message string }
 func (e *invalidParamsError) ErrorCode() int { return -32602 }
 
 func (e *invalidParamsError) Error() string { return e.message }
+
+// internalServerError is used for server errors during request processing.
+type internalServerError struct {
+	code    int
+	message string
+}
+
+func (e *internalServerError) ErrorCode() int { return e.code }
+
+func (e *internalServerError) Error() string { return e.message }

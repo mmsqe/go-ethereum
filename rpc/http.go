@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"mime"
 	"net/http"
 	"net/url"
@@ -51,7 +52,7 @@ type httpConn struct {
 // and some methods don't work. The panic() stubs here exist to ensure
 // this special treatment is correct.
 
-func (hc *httpConn) writeJSON(context.Context, interface{}) error {
+func (hc *httpConn) writeJSON(context.Context, interface{}, bool) error {
 	panic("writeJSON called on httpConn")
 }
 
@@ -108,6 +109,11 @@ var DefaultHTTPTimeouts = HTTPTimeouts{
 	IdleTimeout:  120 * time.Second,
 }
 
+// DialHTTP creates a new RPC client that connects to an RPC server over HTTP.
+func DialHTTP(endpoint string) (*Client, error) {
+	return DialHTTPWithClient(endpoint, new(http.Client))
+}
+
 // DialHTTPWithClient creates a new RPC client that connects to an RPC server over HTTP
 // using the provided HTTP Client.
 func DialHTTPWithClient(endpoint string, client *http.Client) (*Client, error) {
@@ -117,24 +123,35 @@ func DialHTTPWithClient(endpoint string, client *http.Client) (*Client, error) {
 		return nil, err
 	}
 
-	initctx := context.Background()
-	headers := make(http.Header, 2)
-	headers.Set("accept", contentType)
-	headers.Set("content-type", contentType)
-	return newClient(initctx, func(context.Context) (ServerCodec, error) {
-		hc := &httpConn{
-			client:  client,
-			headers: headers,
-			url:     endpoint,
-			closeCh: make(chan interface{}),
-		}
-		return hc, nil
-	})
+	var cfg clientConfig
+	cfg.httpClient = client
+	fn := newClientTransportHTTP(endpoint, &cfg)
+	return newClient(context.Background(), &cfg, fn)
 }
 
-// DialHTTP creates a new RPC client that connects to an RPC server over HTTP.
-func DialHTTP(endpoint string) (*Client, error) {
-	return DialHTTPWithClient(endpoint, new(http.Client))
+func newClientTransportHTTP(endpoint string, cfg *clientConfig) reconnectFunc {
+	headers := make(http.Header, 2+len(cfg.httpHeaders))
+	headers.Set("accept", contentType)
+	headers.Set("content-type", contentType)
+	for key, values := range cfg.httpHeaders {
+		headers[key] = values
+	}
+
+	client := cfg.httpClient
+	if client == nil {
+		client = new(http.Client)
+	}
+
+	hc := &httpConn{
+		client:  client,
+		headers: headers,
+		url:     endpoint,
+		closeCh: make(chan interface{}),
+	}
+
+	return func(ctx context.Context) (ServerCodec, error) {
+		return hc, nil
+	}
 }
 
 func (c *Client) sendHTTP(ctx context.Context, op *requestOp, msg interface{}) error {
@@ -145,11 +162,12 @@ func (c *Client) sendHTTP(ctx context.Context, op *requestOp, msg interface{}) e
 	}
 	defer respBody.Close()
 
-	var respmsg jsonrpcMessage
-	if err := json.NewDecoder(respBody).Decode(&respmsg); err != nil {
+	var resp jsonrpcMessage
+	batch := [1]*jsonrpcMessage{&resp}
+	if err := json.NewDecoder(respBody).Decode(&resp); err != nil {
 		return err
 	}
-	op.resp <- &respmsg
+	op.resp <- batch[:]
 	return nil
 }
 
@@ -160,13 +178,12 @@ func (c *Client) sendBatchHTTP(ctx context.Context, op *requestOp, msgs []*jsonr
 		return err
 	}
 	defer respBody.Close()
-	var respmsgs []jsonrpcMessage
+
+	var respmsgs []*jsonrpcMessage
 	if err := json.NewDecoder(respBody).Decode(&respmsgs); err != nil {
 		return err
 	}
-	for i := 0; i < len(respmsgs); i++ {
-		op.resp <- &respmsgs[i]
-	}
+	op.resp <- respmsgs
 	return nil
 }
 
@@ -287,4 +304,36 @@ func validateRequest(r *http.Request) (int, error) {
 	// Invalid content-type
 	err := fmt.Errorf("invalid content type, only %s is supported", contentType)
 	return http.StatusUnsupportedMediaType, err
+}
+
+// ContextRequestTimeout returns the request timeout derived from the given context.
+func ContextRequestTimeout(ctx context.Context) (time.Duration, bool) {
+	timeout := time.Duration(math.MaxInt64)
+	hasTimeout := false
+	setTimeout := func(d time.Duration) {
+		if d < timeout {
+			timeout = d
+			hasTimeout = true
+		}
+	}
+
+	if deadline, ok := ctx.Deadline(); ok {
+		setTimeout(time.Until(deadline))
+	}
+
+	// If the context is an HTTP request context, use the server's WriteTimeout.
+	httpSrv, ok := ctx.Value(http.ServerContextKey).(*http.Server)
+	if ok && httpSrv.WriteTimeout > 0 {
+		wt := httpSrv.WriteTimeout
+		// When a write timeout is configured, we need to send the response message before
+		// the HTTP server cuts connection. So our internal timeout must be earlier than
+		// the server's true timeout.
+		//
+		// Note: Timeouts are sanitized to be a minimum of 1 second.
+		// Also see issue: https://github.com/golang/go/issues/47229
+		wt -= 100 * time.Millisecond
+		setTimeout(wt)
+	}
+
+	return timeout, hasTimeout
 }
