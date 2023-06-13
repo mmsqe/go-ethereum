@@ -179,7 +179,7 @@ func (n *Notifier) send(sub *Subscription, data json.RawMessage) error {
 		Version: vsn,
 		Method:  n.namespace + notificationMethodSuffix,
 		Params:  params,
-	})
+	}, false)
 }
 
 // A Subscription is created by a notifier and tied to that notifier. The client can use
