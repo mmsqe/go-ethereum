@@ -45,16 +45,17 @@ type operation struct {
 }
 
 var (
-	FrontierInstructionSet         = newFrontierInstructionSet()
-	HomesteadInstructionSet        = newHomesteadInstructionSet()
-	TangerineWhistleInstructionSet = newTangerineWhistleInstructionSet()
-	SpuriousDragonInstructionSet   = newSpuriousDragonInstructionSet()
-	ByzantiumInstructionSet        = newByzantiumInstructionSet()
-	ConstantinopleInstructionSet   = newConstantinopleInstructionSet()
-	IstanbulInstructionSet         = newIstanbulInstructionSet()
-	BerlinInstructionSet           = newBerlinInstructionSet()
-	LondonInstructionSet           = newLondonInstructionSet()
-	MergeInstructionSet            = newMergeInstructionSet()
+	frontierInstructionSet         = newFrontierInstructionSet()
+	homesteadInstructionSet        = newHomesteadInstructionSet()
+	tangerineWhistleInstructionSet = newTangerineWhistleInstructionSet()
+	spuriousDragonInstructionSet   = newSpuriousDragonInstructionSet()
+	byzantiumInstructionSet        = newByzantiumInstructionSet()
+	constantinopleInstructionSet   = newConstantinopleInstructionSet()
+	istanbulInstructionSet         = newIstanbulInstructionSet()
+	berlinInstructionSet           = newBerlinInstructionSet()
+	londonInstructionSet           = newLondonInstructionSet()
+	mergeInstructionSet            = newMergeInstructionSet()
+	shanghaiInstructionSet         = newShanghaiInstructionSet()
 )
 
 // JumpTable contains the EVM opcodes supported at a given fork.
@@ -63,26 +64,28 @@ type JumpTable [256]*operation
 // DefaultJumpTable defines the default jump table used by the EVM interpreter.
 func DefaultJumpTable(rules params.Rules) (jumpTable *JumpTable) {
 	switch {
+	case rules.IsShanghai:
+		jumpTable = &shanghaiInstructionSet
 	case rules.IsMerge:
-		jumpTable = &MergeInstructionSet
+		jumpTable = &mergeInstructionSet
 	case rules.IsLondon:
-		jumpTable = &LondonInstructionSet
+		jumpTable = &londonInstructionSet
 	case rules.IsBerlin:
-		jumpTable = &BerlinInstructionSet
+		jumpTable = &berlinInstructionSet
 	case rules.IsIstanbul:
-		jumpTable = &IstanbulInstructionSet
+		jumpTable = &istanbulInstructionSet
 	case rules.IsConstantinople:
-		jumpTable = &ConstantinopleInstructionSet
+		jumpTable = &constantinopleInstructionSet
 	case rules.IsByzantium:
-		jumpTable = &ByzantiumInstructionSet
+		jumpTable = &byzantiumInstructionSet
 	case rules.IsEIP158:
-		jumpTable = &SpuriousDragonInstructionSet
+		jumpTable = &spuriousDragonInstructionSet
 	case rules.IsEIP150:
-		jumpTable = &TangerineWhistleInstructionSet
+		jumpTable = &tangerineWhistleInstructionSet
 	case rules.IsHomestead:
-		jumpTable = &HomesteadInstructionSet
+		jumpTable = &homesteadInstructionSet
 	default:
-		jumpTable = &FrontierInstructionSet
+		jumpTable = &frontierInstructionSet
 	}
 
 	return jumpTable
@@ -117,9 +120,17 @@ func (jt JumpTable) MustValidate() {
 	}
 }
 
+func newShanghaiInstructionSet() JumpTable {
+	instructionSet := newMergeInstructionSet()
+	enable3855(&instructionSet) // PUSH0 instruction
+	enable3860(&instructionSet) // Limit and meter initcode
+	instructionSet.MustValidate()
+	return instructionSet
+}
+
 func newMergeInstructionSet() JumpTable {
 	instructionSet := newLondonInstructionSet()
-	instructionSet[RANDOM] = &operation{
+	instructionSet[PREVRANDAO] = &operation{
 		execute:     opRandom,
 		constantGas: GasQuickStep,
 		minStack:    minStack(0, 1),
@@ -1093,8 +1104,7 @@ func newFrontierInstructionSet() JumpTable {
 	return tbl
 }
 
-// CopyJumpTable creates copy of the operations from the provided source JumpTable.
-func CopyJumpTable(source *JumpTable) *JumpTable {
+func copyJumpTable(source *JumpTable) *JumpTable {
 	dest := *source
 	for i, op := range source {
 		if op != nil {
