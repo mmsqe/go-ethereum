@@ -40,6 +40,8 @@ type ScopeContext struct {
 	Contract *Contract
 }
 
+var _ Interpreter = &EVMInterpreter{}
+
 // EVMInterpreter represents an EVM interpreter
 type EVMInterpreter struct {
 	evm   *EVM
