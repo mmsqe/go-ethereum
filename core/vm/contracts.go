@@ -31,6 +31,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto/bls12381"
 	"github.com/ethereum/go-ethereum/crypto/bn256"
 	"github.com/ethereum/go-ethereum/params"
+	big2 "github.com/holiman/big"
 	"golang.org/x/crypto/ripemd160"
 )
 
@@ -412,7 +413,6 @@ type bigModExp struct {
 var (
 	big0      = big.NewInt(0)
 	big1      = big.NewInt(1)
-	big2      = big.NewInt(2)
 	big3      = big.NewInt(3)
 	big4      = big.NewInt(4)
 	big7      = big.NewInt(7)
@@ -550,9 +550,9 @@ func (c *bigModExp) Run(evm *EVM, contract *Contract, readonly bool) ([]byte, er
 	}
 	// Retrieve the operands and execute the exponentiation
 	var (
-		base = new(big.Int).SetBytes(getData(contract.Input, 0, baseLen))
-		exp  = new(big.Int).SetBytes(getData(contract.Input, baseLen, expLen))
-		mod  = new(big.Int).SetBytes(getData(contract.Input, baseLen+expLen, modLen))
+		base = new(big2.Int).SetBytes(getData(contract.Input, 0, baseLen))
+		exp  = new(big2.Int).SetBytes(getData(contract.Input, baseLen, expLen))
+		mod  = new(big2.Int).SetBytes(getData(contract.Input, baseLen+expLen, modLen))
 		v    []byte
 	)
 	switch {
