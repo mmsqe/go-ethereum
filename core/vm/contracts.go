@@ -46,6 +46,13 @@ type PrecompiledContract interface {
 	Run(evm *EVM, contract *Contract, readonly bool) ([]byte, error)
 }
 
+// PrecompiledContractWithChainConfig is an interface that defines a method to set the
+// chain config for precompiled contract.
+type PrecompiledContractWithChainConfig interface {
+	// SetChainConfig sets isHomestead, isIstanbul and isShanghai config for precompiled contract.
+	SetChainConfig(isHomestead, isIstanbul, isShanghai bool)
+}
+
 // PrecompiledContractsHomestead contains the default set of pre-compiled Ethereum
 // contracts used in the Frontier and Homestead releases.
 var PrecompiledContractsHomestead = map[common.Address]PrecompiledContract{
@@ -267,6 +274,9 @@ func (evm *EVM) RunPrecompiledContract(
 	value *big.Int,
 	readOnly bool,
 ) (ret []byte, remainingGas uint64, err error) {
+	if pp, ok := p.(PrecompiledContractWithChainConfig); ok {
+		pp.SetChainConfig(evm.chainRules.IsHomestead, evm.chainRules.IsIstanbul, evm.chainRules.IsShanghai)
+	}
 	return runPrecompiledContract(evm, p, caller, input, suppliedGas, value, readOnly)
 }
 
