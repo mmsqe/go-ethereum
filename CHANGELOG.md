@@ -8,4 +8,4 @@
 
 ### Improvements
 
-- [#13](https://github.com/crypto-org-chain/go-ethereum/pull/13) Add PrecompiledContractWithChainConfig interface to set the chain config.
+- [#13](https://github.com/crypto-org-chain/go-ethereum/pull/13) Add PrecompiledContractWithChainConfig interface to copy with the chain config.
