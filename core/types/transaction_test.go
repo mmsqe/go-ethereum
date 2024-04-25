@@ -26,7 +26,6 @@ import (
 	"math/rand"
 	"reflect"
 	"testing"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -360,6 +359,8 @@ func testTransactionPriceNonceSort(t *testing.T, baseFee *big.Int) {
 // Tests that if multiple transactions have the same price, the ones seen earlier
 // are prioritized to avoid network spam attacks aiming for a specific ordering.
 func TestTransactionTimeSort(t *testing.T) {
+	t.Skip("time field is removed")
+
 	// Generate a batch of accounts to start with
 	keys := make([]*ecdsa.PrivateKey, 5)
 	for i := 0; i < len(keys); i++ {
@@ -369,11 +370,10 @@ func TestTransactionTimeSort(t *testing.T) {
 
 	// Generate a batch of transactions with overlapping prices, but different creation times
 	groups := map[common.Address]Transactions{}
-	for start, key := range keys {
+	for _, key := range keys {
 		addr := crypto.PubkeyToAddress(key.PublicKey)
 
 		tx, _ := SignTx(NewTransaction(0, common.Address{}, big.NewInt(100), 100, big.NewInt(1), nil), signer, key)
-		tx.time = time.Unix(0, int64(len(keys)-start))
 
 		groups[addr] = append(groups[addr], tx)
 	}
@@ -398,8 +398,8 @@ func TestTransactionTimeSort(t *testing.T) {
 				t.Errorf("invalid gasprice ordering: tx #%d (A=%x P=%v) < tx #%d (A=%x P=%v)", i, fromi[:4], txi.GasPrice(), i+1, fromNext[:4], next.GasPrice())
 			}
 			// Make sure time order is ascending if the txs have the same gas price
-			if txi.GasPrice().Cmp(next.GasPrice()) == 0 && txi.time.After(next.time) {
-				t.Errorf("invalid received time ordering: tx #%d (A=%x T=%v) > tx #%d (A=%x T=%v)", i, fromi[:4], txi.time, i+1, fromNext[:4], next.time)
+			if txi.GasPrice().Cmp(next.GasPrice()) == 0 {
+				t.Errorf("invalid received time ordering: tx #%d (A=%x) > tx #%d (A=%x)", i, fromi[:4], i+1, fromNext[:4])
 			}
 		}
 	}
