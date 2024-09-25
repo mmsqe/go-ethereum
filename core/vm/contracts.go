@@ -30,6 +30,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto/blake2b"
 	"github.com/ethereum/go-ethereum/crypto/bls12381"
 	"github.com/ethereum/go-ethereum/crypto/bn256"
+	"github.com/ethereum/go-ethereum/crypto/kzg4844"
 	"github.com/ethereum/go-ethereum/params"
 	"golang.org/x/crypto/ripemd160"
 )
@@ -95,6 +96,21 @@ var PrecompiledContractsBerlin = map[common.Address]PrecompiledContract{
 	blake2F{}.Address():                &blake2F{},
 }
 
+// PrecompiledContractsCancun contains the default set of pre-compiled Ethereum
+// contracts used in the Cancun release.
+var PrecompiledContractsCancun = map[common.Address]PrecompiledContract{
+	ecrecover{}.Address():              &ecrecover{},
+	sha256hash{}.Address():             &sha256hash{},
+	ripemd160hash{}.Address():          &ripemd160hash{},
+	dataCopy{}.Address():               &dataCopy{},
+	bigModExp{}.Address():              &bigModExp{eip2565: true},
+	bn256AddIstanbul{}.Address():       &bn256AddIstanbul{},
+	bn256ScalarMulIstanbul{}.Address(): &bn256ScalarMulIstanbul{},
+	bn256PairingIstanbul{}.Address():   &bn256PairingIstanbul{},
+	blake2F{}.Address():                &blake2F{},
+	kzgPointEvaluation{}.Address():     &kzgPointEvaluation{},
+}
+
 // PrecompiledContractsBLS contains the set of pre-compiled Ethereum
 // contracts specified in EIP-2537. These are exported for testing purposes.
 var PrecompiledContractsBLS = map[common.Address]PrecompiledContract{
@@ -110,6 +126,20 @@ var PrecompiledContractsBLS = map[common.Address]PrecompiledContract{
 }
 
 var (
+	// PrecompiledAddressesCancun defines the default set of pre-compiled
+	// Ethereum contract addresses used in the Cancun release.
+	PrecompiledAddressesCancun = []common.Address{
+		ecrecover{}.Address(),
+		sha256hash{}.Address(),
+		ripemd160hash{}.Address(),
+		dataCopy{}.Address(),
+		bigModExp{}.Address(),
+		bn256AddIstanbul{}.Address(),
+		bn256ScalarMulIstanbul{}.Address(),
+		bn256PairingIstanbul{}.Address(),
+		blake2F{}.Address(),
+		kzgPointEvaluation{}.Address(),
+	}
 	// PrecompiledAddressesBerlin defines the default set of pre-compiled
 	// Ethereum contract addresses used in the Berlin release.
 	PrecompiledAddressesBerlin = []common.Address{
@@ -161,6 +191,8 @@ var (
 // DefaultActivePrecompiles returns the set of precompiles enabled with the default configuration.
 func DefaultActivePrecompiles(rules params.Rules) []common.Address {
 	switch {
+	case rules.IsCancun:
+		return PrecompiledAddressesCancun
 	case rules.IsBerlin:
 		return PrecompiledAddressesBerlin
 	case rules.IsIstanbul:
@@ -175,6 +207,8 @@ func DefaultActivePrecompiles(rules params.Rules) []common.Address {
 // DefaultPrecompiles define the mapping of address and precompiles from the default configuration
 func DefaultPrecompiles(rules params.Rules) (precompiles map[common.Address]PrecompiledContract) {
 	switch {
+	case rules.IsCancun:
+		precompiles = PrecompiledContractsCancun
 	case rules.IsBerlin:
 		precompiles = PrecompiledContractsBerlin
 	case rules.IsIstanbul:
@@ -1315,4 +1349,75 @@ func (c *bls12381MapG2) Run(evm *EVM, contract *Contract, readonly bool) ([]byte
 
 	// Encode the G2 point to 256 bytes
 	return g.EncodePoint(r), nil
+}
+
+// kzgPointEvaluation implements the EIP-4844 point evaluation precompile.
+type kzgPointEvaluation struct{}
+
+// Address defines the precompiled contract address. This MUST match the address
+// set in the precompiled contract map.
+func (kzgPointEvaluation) Address() common.Address {
+	return common.BytesToAddress([]byte{0x0a})
+}
+
+// RequiredGas estimates the gas required for running the point evaluation precompile.
+func (b *kzgPointEvaluation) RequiredGas(input []byte) uint64 {
+	return params.BlobTxPointEvaluationPrecompileGas
+}
+
+const (
+	blobVerifyInputLength           = 192  // Max input length for the point evaluation precompile.
+	blobCommitmentVersionKZG  uint8 = 0x01 // Version byte for the point evaluation precompile.
+	blobPrecompileReturnValue       = "000000000000000000000000000000000000000000000000000000000000100073eda753299d7d483339d80809a1d80553bda402fffe5bfeffffffff00000001"
+)
+
+var (
+	errBlobVerifyInvalidInputLength = errors.New("invalid input length")
+	errBlobVerifyMismatchedVersion  = errors.New("mismatched versioned hash")
+	errBlobVerifyKZGProof           = errors.New("error verifying kzg proof")
+)
+
+// Run executes the point evaluation precompile.
+func (b *kzgPointEvaluation) Run(evm *EVM, contract *Contract, readonly bool) ([]byte, error) {
+	input := contract.Input
+	if len(input) != blobVerifyInputLength {
+		return nil, errBlobVerifyInvalidInputLength
+	}
+	// versioned hash: first 32 bytes
+	var versionedHash common.Hash
+	copy(versionedHash[:], input[:])
+
+	var (
+		point kzg4844.Point
+		claim kzg4844.Claim
+	)
+	// Evaluation point: next 32 bytes
+	copy(point[:], input[32:])
+	// Expected output: next 32 bytes
+	copy(claim[:], input[64:])
+
+	// input kzg point: next 48 bytes
+	var commitment kzg4844.Commitment
+	copy(commitment[:], input[96:])
+	if kZGToVersionedHash(commitment) != versionedHash {
+		return nil, errBlobVerifyMismatchedVersion
+	}
+
+	// Proof: next 48 bytes
+	var proof kzg4844.Proof
+	copy(proof[:], input[144:])
+
+	if err := kzg4844.VerifyProof(commitment, point, claim, proof); err != nil {
+		return nil, fmt.Errorf("%w: %v", errBlobVerifyKZGProof, err)
+	}
+
+	return common.Hex2Bytes(blobPrecompileReturnValue), nil
+}
+
+// kZGToVersionedHash implements kzg_to_versioned_hash from EIP-4844
+func kZGToVersionedHash(kzg kzg4844.Commitment) common.Hash {
+	h := sha256.Sum256(kzg[:])
+	h[0] = blobCommitmentVersionKZG
+
+	return h
 }
