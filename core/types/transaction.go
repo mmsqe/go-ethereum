@@ -23,6 +23,7 @@ import (
 	"io"
 	"math/big"
 	"sync/atomic"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
@@ -48,7 +49,8 @@ const (
 
 // Transaction is an Ethereum transaction.
 type Transaction struct {
-	inner TxData // Consensus contents of a transaction
+	inner TxData    // Consensus contents of a transaction
+	time  time.Time // Time first seen locally (spam avoidance)
 
 	// caches
 	hash atomic.Value
@@ -198,6 +200,7 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 // setDecoded sets the inner transaction and size after decoding.
 func (tx *Transaction) setDecoded(inner TxData, size uint64) {
 	tx.inner = inner
+	tx.time = time.Now()
 	if size > 0 {
 		tx.size.Store(size)
 	}
@@ -403,7 +406,7 @@ func (tx *Transaction) WithSignature(signer Signer, sig []byte) (*Transaction, e
 	}
 	cpy := tx.inner.copy()
 	cpy.setSignatureValues(signer.ChainID(), v, r, s)
-	return &Transaction{inner: cpy}, nil
+	return &Transaction{inner: cpy, time: tx.time}, nil
 }
 
 // Transactions implements DerivableList for transactions.
@@ -498,6 +501,9 @@ func (s TxByPriceAndTime) Less(i, j int) bool {
 	// If the prices are equal, use the time the transaction was first seen for
 	// deterministic sorting
 	cmp := s[i].minerFee.Cmp(s[j].minerFee)
+	if cmp == 0 {
+		return s[i].tx.time.Before(s[j].tx.time)
+	}
 	return cmp > 0
 }
 func (s TxByPriceAndTime) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
