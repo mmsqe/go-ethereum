@@ -32,6 +32,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto/bn256"
 	"github.com/ethereum/go-ethereum/crypto/kzg4844"
 	"github.com/ethereum/go-ethereum/params"
+	"github.com/holiman/uint256"
 	"golang.org/x/crypto/ripemd160"
 )
 
@@ -297,7 +298,7 @@ func (evm *EVM) RunPrecompiledContract(
 	caller ContractRef,
 	input []byte,
 	suppliedGas uint64,
-	value *big.Int,
+	value *uint256.Int,
 	readOnly bool,
 ) (ret []byte, remainingGas uint64, err error) {
 	return runPrecompiledContract(evm, p, caller, input, suppliedGas, value, readOnly)
@@ -309,7 +310,7 @@ func runPrecompiledContract(
 	caller ContractRef,
 	input []byte,
 	suppliedGas uint64,
-	value *big.Int,
+	value *uint256.Int,
 	readOnly bool,
 ) (ret []byte, remainingGas uint64, err error) {
 	addrCopy := p.Address()
@@ -444,7 +445,6 @@ type bigModExp struct {
 }
 
 var (
-	big0      = big.NewInt(0)
 	big1      = big.NewInt(1)
 	big3      = big.NewInt(3)
 	big4      = big.NewInt(4)
