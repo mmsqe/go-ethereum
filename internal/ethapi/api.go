@@ -1173,6 +1173,7 @@ func DoEstimateGas(ctx context.Context, b Backend, args TransactionArgs, blockNr
 	if err = overrides.Apply(state); err != nil {
 		return 0, err
 	}
+	fmt.Println("mm-DoEstimateGas:", blockNrOrHash, header.WithdrawalsHash != nil)
 	// Construct the gas estimator option from the user input
 	opts := &gasestimator.Options{
 		Config:     b.ChainConfig(),

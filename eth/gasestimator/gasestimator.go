@@ -205,6 +205,7 @@ func execute(ctx context.Context, call *core.Message, opts *Options, gasLimit ui
 // run assembles the EVM as defined by the consensus rules and runs the requested
 // call invocation.
 func run(ctx context.Context, call *core.Message, opts *Options) (*core.ExecutionResult, error) {
+	fmt.Println("mm-run:", opts.Header.WithdrawalsHash != nil)
 	// Assemble the call and the call context
 	var (
 		msgContext = core.NewEVMTxContext(call)
