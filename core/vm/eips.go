@@ -43,6 +43,7 @@ var activators = map[int]func(*JumpTable){
 	7939: enable7939,
 	8024: enable8024,
 	7843: enable7843,
+	7990: enable7990,
 }
 
 // EnableEIP enables the given EIP on the config.
@@ -221,6 +222,18 @@ func opTstore(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 func opBaseFee(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 	scope.Stack.get().SetFromBig(evm.Context.BaseFee)
 	return nil, nil
+}
+
+// enable7990 applies EIP-7990 (RUNCODE opcode)
+func enable7990(jt *JumpTable) {
+	jt[RUNCODE] = &operation{
+		execute:     opRunCode,
+		constantGas: params.RuncodeGas,
+		dynamicGas:  gasRunCode,
+		minStack:    minStack(7, 1),
+		maxStack:    maxStack(7, 1),
+		memorySize:  memoryRuncode,
+	}
 }
 
 // enable3855 applies EIP-3855 (PUSH0 opcode)

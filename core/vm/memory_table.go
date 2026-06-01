@@ -94,6 +94,30 @@ func memoryDelegateCall(stack *Stack) (uint64, bool) {
 	return y, false
 }
 
+func memoryRuncode(stack *Stack) (uint64, bool) {
+	// RUNCODE touches three memory regions: code, args and return.
+	code, overflow := calcMemSize64(stack.back(1), stack.back(2))
+	if overflow {
+		return 0, true
+	}
+	args, overflow := calcMemSize64(stack.back(3), stack.back(4))
+	if overflow {
+		return 0, true
+	}
+	ret, overflow := calcMemSize64(stack.back(5), stack.back(6))
+	if overflow {
+		return 0, true
+	}
+	max := code
+	if args > max {
+		max = args
+	}
+	if ret > max {
+		max = ret
+	}
+	return max, false
+}
+
 func memoryStaticCall(stack *Stack) (uint64, bool) {
 	x, overflow := calcMemSize64(stack.back(4), stack.back(5))
 	if overflow {

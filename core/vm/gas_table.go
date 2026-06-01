@@ -382,7 +382,19 @@ var (
 	gasCallCode     = makeCallVariantGasCost(gasCallCodeIntrinsic)
 	gasDelegateCall = makeCallVariantGasCost(gasDelegateCallIntrinsic)
 	gasStaticCall   = makeCallVariantGasCost(gasStaticCallIntrinsic)
+	gasRunCode      = makeCallVariantGasCost(gasRunCodeIntrinsic)
 )
+
+// gasRunCodeIntrinsic is RUNCODE's intrinsic gas: memory expansion only (no
+// account access or value transfer). The forwarded 63/64 gas is added by
+// makeCallVariantGasCost.
+func gasRunCodeIntrinsic(evm *EVM, contract *Contract, stack *Stack, mem *Memory, memorySize uint64) (GasCosts, error) {
+	gas, err := memoryGasCost(mem, memorySize)
+	if err != nil {
+		return GasCosts{}, err
+	}
+	return GasCosts{RegularGas: gas}, nil
+}
 
 func makeCallVariantGasCost(intrinsicFunc gasFunc) gasFunc {
 	return func(evm *EVM, contract *Contract, stack *Stack, mem *Memory, memorySize uint64) (GasCosts, error) {

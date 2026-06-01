@@ -823,6 +823,40 @@ func opDelegateCall(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 	return ret, nil
 }
 
+// opRunCode implements RUNCODE (EIP-7990): run in-memory bytecode in the current
+// context with an isolated stack and its own calldata. Like opDelegateCall, but
+// the code comes from memory instead of an account.
+func opRunCode(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
+	stack := scope.Stack
+	// Pop gas. The actual gas is in evm.callGasTemp.
+	temp := stack.pop()
+	gas := evm.callGasTemp
+	// Pop other parameters: code region, args region, return region.
+	codeOffset, codeSize, inOffset, inSize, retOffset, retSize :=
+		stack.pop(), stack.pop(), stack.pop(), stack.pop(), stack.pop(), stack.pop()
+	// Non-copy view: the executed frame gets its own fresh memory (see EVM.Run),
+	// so the parent's regions aren't mutated — avoiding an O(n) copy per call.
+	code := scope.Memory.GetPtr(codeOffset.Uint64(), codeSize.Uint64())
+	// The args become the executed code's calldata.
+	args := scope.Memory.GetPtr(inOffset.Uint64(), inSize.Uint64())
+
+	ret, returnGas, err := evm.RunCode(scope.Contract, code, args, NewGasBudget(gas))
+	if err != nil {
+		temp.Clear()
+	} else {
+		temp.SetOne()
+	}
+	stack.push(&temp)
+	if err == nil || err == ErrExecutionReverted {
+		scope.Memory.Set(retOffset.Uint64(), retSize.Uint64(), ret)
+	}
+
+	scope.Contract.RefundGas(returnGas, evm.Config.Tracer, tracing.GasChangeCallLeftOverRefunded)
+
+	evm.returnData = ret
+	return ret, nil
+}
+
 func opStaticCall(pc *uint64, evm *EVM, scope *ScopeContext) ([]byte, error) {
 	// Pop gas. The actual gas is in evm.callGasTemp.
 	stack := scope.Stack

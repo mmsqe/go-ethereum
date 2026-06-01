@@ -244,6 +244,7 @@ const (
 	RETURN       OpCode = 0xf3
 	DELEGATECALL OpCode = 0xf4
 	CREATE2      OpCode = 0xf5
+	RUNCODE      OpCode = 0xf6 // EIP-7990
 
 	RETURNDATALOAD  OpCode = 0xf7
 	EXTCALL         OpCode = 0xf8
@@ -444,6 +445,7 @@ var opCodeToString = [256]string{
 	CALLCODE:     "CALLCODE",
 	DELEGATECALL: "DELEGATECALL",
 	CREATE2:      "CREATE2",
+	RUNCODE:      "RUNCODE",
 
 	RETURNDATALOAD:  "RETURNDATALOAD",
 	EXTCALL:         "EXTCALL",
@@ -624,6 +626,7 @@ var stringToOp = map[string]OpCode{
 	"RETURNCONTRACT":  RETURNCONTRACT,
 	"CREATE":          CREATE,
 	"CREATE2":         CREATE2,
+	"RUNCODE":         RUNCODE,
 	"RETURNDATALOAD":  RETURNDATALOAD,
 	"EXTCALL":         EXTCALL,
 	"EXTDELEGATECALL": EXTDELEGATECALL,

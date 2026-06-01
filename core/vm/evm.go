@@ -424,6 +424,44 @@ func (evm *EVM) DelegateCall(originCaller common.Address, caller common.Address,
 	return ret, gas, err
 }
 
+// RunCode runs in-memory bytecode (the RUNCODE opcode) in the parent frame's
+// context — same address, caller and value, with only the stack and calldata
+// isolated. Like DelegateCall, but the code is supplied rather than loaded, so
+// account and precompile resolution are skipped.
+func (evm *EVM) RunCode(parent *Contract, code []byte, input []byte, gas GasBudget) (ret []byte, leftOverGas GasBudget, err error) {
+	// Invoke tracer hooks that signal entering/exiting a call frame.
+	if evm.Config.Tracer != nil {
+		evm.captureBegin(evm.depth, RUNCODE, parent.Caller(), parent.Address(), input, gas.RegularGas, parent.value.ToBig())
+		defer func(startGas uint64) {
+			evm.captureEnd(evm.depth, startGas, leftOverGas.RegularGas, ret, err)
+		}(gas.RegularGas)
+	}
+	// Fail if we're trying to execute above the call depth limit.
+	if evm.depth > int(params.CallCreateDepth) {
+		return nil, gas, ErrDepth
+	}
+	var snapshot = evm.StateDB.Snapshot()
+
+	// New frame in the parent's context, running the in-memory code. The zero
+	// code hash routes JUMPDEST analysis through the local initcode path (like
+	// CREATE), avoiding a per-call keccak and jumpdest-cache pollution.
+	contract := NewContract(parent.Caller(), parent.Address(), parent.value, gas, evm.jumpDests)
+	contract.SetCallCode(common.Hash{}, code)
+	ret, err = evm.Run(contract, input, evm.readOnly)
+	gas = contract.Gas
+
+	if err != nil {
+		evm.StateDB.RevertToSnapshot(snapshot)
+		if err != ErrExecutionReverted {
+			if evm.Config.Tracer != nil && evm.Config.Tracer.HasGasHook() {
+				evm.Config.Tracer.EmitGasChange(gas.AsTracing(), tracing.Gas{}, tracing.GasChangeCallFailedExecution)
+			}
+			gas.Exhaust()
+		}
+	}
+	return ret, gas, err
+}
+
 // StaticCall executes the contract associated with the addr with the given input
 // as parameters while disallowing any modifications to the state during the call.
 // Opcodes that attempt to perform such modifications will result in exceptions
